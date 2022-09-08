@@ -65,8 +65,6 @@ class Window extends JFrame {
               throw new Exception("这不是一个合法的十进制小数！");
             }
           }
-          if (s.startsWith("0") || s.endsWith("0"))
-            throw new Exception("这不是一个合法的十进制小数！");
 
           splitBuffer[flag] = new StringBuffer(s).reverse().toString();
           flag++;
