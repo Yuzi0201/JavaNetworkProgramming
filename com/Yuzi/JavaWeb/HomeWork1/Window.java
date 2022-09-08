@@ -25,7 +25,7 @@ class Window extends JFrame {
     number = new JTextField(10);
     number.setBounds(130, 90, 150, 40);
     add(number);
-    button = new JButton("确定");
+    button = new JButton("翻转");
     button.setBounds(170, 150, 70, 30);
     add(button);
     button.addActionListener(e -> Caculator());
@@ -45,7 +45,7 @@ class Window extends JFrame {
   }
 
   void Caculator() {
-    String result;
+    String result = "";
     String text = number.getText();
     if (text.endsWith(".")) {
       ShowErrorDialog("这不是一个合法的十进制小数！");
@@ -54,6 +54,10 @@ class Window extends JFrame {
     String[] splitBuffer = number.getText().split("\\.");
     if (splitBuffer.length == 2) {
       try {
+        if (splitBuffer[0].startsWith("-")) {
+          result = "-";
+          splitBuffer[0] = splitBuffer[0].replaceFirst("-", "");
+        }
         int flag = 0;//0为整数部分，1为小数部分
         for (String s : splitBuffer) {
           for (int i = s.length() - 1; i >= 0; i--) {
@@ -67,7 +71,7 @@ class Window extends JFrame {
           splitBuffer[flag] = new StringBuffer(s).reverse().toString();
           flag++;
         }
-        result = splitBuffer[0] + "." + splitBuffer[1];
+        result = result + splitBuffer[0] + "." + splitBuffer[1];
         ShowDialog("整数小数分别翻转后的结果是：\n" + result);
       } catch (Exception exception) {
         ShowErrorDialog(exception.getMessage());
