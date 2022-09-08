@@ -49,6 +49,7 @@ class Window extends JFrame {
     String text = number.getText();
     if (text.endsWith(".")) {
       ShowErrorDialog("这不是一个合法的十进制小数！");
+      return;
     }
     String[] splitBuffer = number.getText().split("\\.");
     if (splitBuffer.length == 2) {
