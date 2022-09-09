@@ -1,2 +1,7 @@
 .idea
 /out
+/.history
+
+*/.history
+*/.vscode
+*/node_modules
