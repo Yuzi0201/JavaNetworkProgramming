@@ -14,6 +14,10 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import static java.lang.Thread.sleep;
 
 public class HelloController {
   public RadioButton radioFile;
@@ -28,6 +32,8 @@ public class HelloController {
   private RadioButton radioDecrypt;
   ToggleGroup groupCryptType = new ToggleGroup();
   ToggleGroup groupObjectType = new ToggleGroup();
+
+  public boolean flag = true;
 
   @FXML
   private void initialize() {
@@ -53,7 +59,7 @@ public class HelloController {
       FileChooser fileChooser = new FileChooser();
       fileChooser.setTitle("选择要操作的文件");
       if (groupCryptType.getSelectedToggle() == radioDecrypt) {
-        fileChooser.getExtensionFilters().addAll(new FileChooser.ExtensionFilter("EnCrypted file", "*.enc"));
+        fileChooser.getExtensionFilters().addAll(new FileChooser.ExtensionFilter("Encrypted file", "*.enc"));
       }
       File selectedFile = fileChooser.showOpenDialog(root.getScene().getWindow());
       path.setText("路径：" + selectedFile.getPath());
@@ -66,32 +72,48 @@ public class HelloController {
   }
 
   @FXML
-  protected void onExecuteButtonClick() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException {
+  protected void onExecuteButtonClick() throws InterruptedException {
     String objectPath = path.getText().replaceFirst("路径：", "");
     if (objectPath.equals("")) {
       ShowErr("没有选择文件或文件夹！");
       return;
     }
     String password = passWordField.getText();
-    boolean res;
+    flag = true;
     if (groupCryptType.getSelectedToggle() == radioEncrypt) {
       if (groupObjectType.getSelectedToggle() == radioFile) {
-        res = EncryptFile(new File(objectPath), new File(objectPath + ".enc"), password);
-      } else {
-        res = EncryptFolder(new File(objectPath), password);
+//        res = EncryptFile(new File(objectPath), new File(objectPath + ".enc"), password);
+        Thread thread = new EncryptFile(new File(objectPath), new File(objectPath + ".enc"), password);
+        thread.start();
+        thread.join();
+      } else {//对于文件夹，使用Executors.newCachedThreadPool()创建可变长线程池来进行多线程并发。
+        ExecutorService pool = Executors.newCachedThreadPool();
+        EncryptFolder(new File(objectPath), password, pool);
+        pool.shutdown();
+        while (!pool.isTerminated()) {
+          sleep(100);
+        }
       }
-      if (res) {
+      if (flag) {
         ShowInfo("加密成功！");
       } else {
         ShowErr("加密失败！");
       }
     } else {
       if (groupObjectType.getSelectedToggle() == radioFile) {
-        res = DecryptFile(new File(objectPath), new File(objectPath.replace(".enc", "")), password);
-      } else {
-        res = DecryptFolder(new File(objectPath), password);
+        //DecryptFile(new File(objectPath), new File(objectPath.replace(".enc", "")), password);
+        Thread thread = new DecryptFile(new File(objectPath), new File(objectPath.replace(".enc", "")), password);
+        thread.start();
+        thread.join();
+      } else {//对于文件夹，使用Executors.newCachedThreadPool()创建可变长线程池来进行多线程并发。
+        ExecutorService pool = Executors.newCachedThreadPool();
+        DecryptFolder(new File(objectPath), password, pool);
+        pool.shutdown();
+        while (!pool.isTerminated()) {
+          sleep(100);
+        }
       }
-      if (res) {
+      if (flag) {
         ShowInfo("解密完成！");
       } else {
         ShowErr("解密失败！");
@@ -114,6 +136,7 @@ public class HelloController {
     return cipher;
   }
 
+/*
   private boolean EncryptFile(File sourceFile, File encryptFile, String password) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException {
     if (sourceFile.getPath().endsWith(".enc")) {
       ShowErr("该文件已被加密过！");
@@ -153,24 +176,81 @@ public class HelloController {
     }
     return false;
   }
+*/
 
-  private boolean EncryptFolder(File folder, String password) {
-    File[] fileList = folder.listFiles();
-    try {
-      for (File file : Objects.requireNonNull(fileList)) {
-        if (file.isDirectory()) {
-          EncryptFolder(file, password);
-        } else if (!file.getPath().endsWith(".enc")) {
-          EncryptFile(file, new File(file.getPath() + ".enc"), password);
+  class EncryptFile extends Thread {
+    File sourceFile;
+    File encryptFile;
+    String password;
+
+    public EncryptFile(File sourceFile, File encryptFile, String password) {
+      this.sourceFile = sourceFile;
+      this.encryptFile = encryptFile;
+      this.password = password;
+    }
+
+    @Override
+    public void run() {
+      if (sourceFile.getPath().endsWith(".enc")) {
+        ShowErr("该文件已被加密过！");
+        //return false;
+        flag = false;
+        return;
+      }
+      InputStream inputStream = null;
+      OutputStream outputStream = null;
+      try {
+        Cipher cipher = initAESCipher(password, Cipher.ENCRYPT_MODE);
+        inputStream = new FileInputStream(sourceFile);
+        outputStream = new FileOutputStream(encryptFile);
+        CipherOutputStream cipherOutputStream = new CipherOutputStream(outputStream, cipher);
+        byte[] buffer = new byte[1024];
+        int r;
+        while ((r = inputStream.read(buffer)) >= 0) {
+          cipherOutputStream.write(buffer, 0, r);
+        }
+        cipherOutputStream.close();
+        sourceFile.delete();
+        return;
+      } catch (IOException | NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException e) {
+        e.printStackTrace();
+        ShowErr(e.getMessage());
+      } finally {
+        try {
+          assert inputStream != null;
+          inputStream.close();
+        } catch (IOException e) {
+          e.printStackTrace();
+          ShowErr(e.getMessage());
+        }
+        try {
+          assert outputStream != null;
+          outputStream.close();
+        } catch (IOException e) {
+          e.printStackTrace();
+          ShowErr(e.getMessage());
         }
       }
-      return true;
-    } catch (NoSuchPaddingException | NoSuchAlgorithmException | InvalidKeyException e) {
-      ShowErr(e.getMessage());
+      //return false;
+      flag = false;
     }
-    return false;
   }
 
+  private void EncryptFolder(File folder, String password, ExecutorService pool) {
+    File[] fileList = folder.listFiles();
+    for (File file : Objects.requireNonNull(fileList)) {
+      if (file.isDirectory()) {
+        EncryptFolder(file, password, pool);
+      } else if (!file.getPath().endsWith(".enc")) {
+        //EncryptFile(file, new File(file.getPath() + ".enc"), password);
+        Thread thread = new EncryptFile(file, new File(file.getPath() + ".enc"), password);
+        //thread.start();
+        pool.execute(thread);
+      }
+    }
+  }
+
+/*
   private boolean DecryptFile(File sourceFile, File decryptFile, String password) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException {
     if (!sourceFile.getPath().endsWith(".enc")) {
       ShowErr("该文件未被加密！");
@@ -209,22 +289,74 @@ public class HelloController {
     }
     return false;
   }
+*/
 
-  private boolean DecryptFolder(File folder, String password) {
-    File[] fileList = folder.listFiles();
-    try {
-      for (File file : Objects.requireNonNull(fileList)) {
-        if (file.isDirectory()) {
-          DecryptFolder(file, password);
-        } else if (file.getPath().endsWith(".enc")) {
-          DecryptFile(file, new File(file.getPath().replace(".enc", "")), password);
+  class DecryptFile extends Thread {
+    File sourceFile;
+    File decryptFile;
+    String password;
+
+    public DecryptFile(File sourceFile, File decryptFile, String password) {
+      this.sourceFile = sourceFile;
+      this.decryptFile = decryptFile;
+      this.password = password;
+    }
+
+    @Override
+    public void run() {
+      if (!sourceFile.getPath().endsWith(".enc")) {
+        ShowErr("该文件未被加密！");
+        //return false;
+        flag = false;
+      }
+      InputStream inputStream = null;
+      OutputStream outputStream = null;
+      try {
+        Cipher cipher = initAESCipher(password, Cipher.DECRYPT_MODE);
+        inputStream = new FileInputStream(sourceFile);
+        outputStream = new FileOutputStream(decryptFile);
+        CipherOutputStream cipherOutputStream = new CipherOutputStream(
+          outputStream, cipher);
+        byte[] buffer = new byte[1024];
+        int r;
+        while ((r = inputStream.read(buffer)) >= 0) {
+          cipherOutputStream.write(buffer, 0, r);
+        }
+        cipherOutputStream.close();
+        sourceFile.delete();
+        return;
+      } catch (IOException | InvalidKeyException | NoSuchAlgorithmException | NoSuchPaddingException e) {
+        e.printStackTrace();
+        ShowErr(e.getMessage());
+      } finally {
+        try {
+          inputStream.close();
+        } catch (IOException e) {
+          e.printStackTrace();
+        }
+        try {
+          outputStream.close();
+        } catch (IOException e) {
+          e.printStackTrace();
         }
       }
-      return true;
-    } catch (NoSuchPaddingException | NoSuchAlgorithmException | InvalidKeyException e) {
-      ShowErr(e.getMessage());
+      //return false;
+      flag = false;
     }
-    return false;
+  }
+
+  private void DecryptFolder(File folder, String password, ExecutorService pool) {
+    File[] fileList = folder.listFiles();
+    for (File file : Objects.requireNonNull(fileList)) {
+      if (file.isDirectory()) {
+        DecryptFolder(file, password, pool);
+      } else if (file.getPath().endsWith(".enc")) {
+        //DecryptFile(file, new File(file.getPath().replace(".enc", "")), password);
+        Thread thread = new DecryptFile(file, new File(file.getPath().replace(".enc", "")), password);
+        //thread.start();
+        pool.execute(thread);
+      }
+    }
   }
 
   private void ShowErr(String bodyMsg) {
